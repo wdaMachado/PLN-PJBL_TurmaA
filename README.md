@@ -1,1 +1,1 @@
-# PLN-PJBL_TurmaA
+# Processamento Linguagem Natural - PJBL_TurmaA
