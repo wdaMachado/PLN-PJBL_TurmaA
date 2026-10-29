@@ -13,6 +13,22 @@
 !python -m spacy download pt_core_news_sm
 
 # %% [markdown]
+# Carrega os dois modelos de tradução do Helsinki-NLP (MarianMT) na GPU, quando houver. Rode uma vez por sessão.
+
+# %%
+import torch
+from transformers import MarianMTModel, MarianTokenizer
+
+dispositivo = "cuda" if torch.cuda.is_available() else "cpu"
+print(f"Dispositivo: {dispositivo}")
+
+tokenizador_pt_en = MarianTokenizer.from_pretrained("Helsinki-NLP/opus-mt-ROMANCE-en")
+modelo_pt_en = MarianMTModel.from_pretrained("Helsinki-NLP/opus-mt-ROMANCE-en").to(dispositivo)
+
+tokenizador_en_pt = MarianTokenizer.from_pretrained("Helsinki-NLP/opus-mt-en-ROMANCE")
+modelo_en_pt = MarianMTModel.from_pretrained("Helsinki-NLP/opus-mt-en-ROMANCE").to(dispositivo)
+
+# %% [markdown]
 # ## 1. Entrada
 #
 # Lê o arquivo de frases: uma frase por linha, sem espaços nas pontas e sem linhas vazias, na ordem original.
@@ -41,62 +57,65 @@ print(f"{len(frases)} frases carregadas de frases.txt")
 # %% [markdown]
 # ## 2. Paráfrase
 #
-# Gera a paráfrase por retrotradução com dois modelos pequenos do Helsinki-NLP (MarianMT), rodando no próprio notebook: traduz a frase do português para o inglês e depois de volta para o português.
+# Gera a paráfrase por retrotradução: traduz a frase do português para o inglês e depois de volta para o português. Todas as frases são traduzidas de uma vez em cada modelo. Se a retrotradução falhar ou devolver a mesma frase, a frase original é mantida e o motivo fica registrado.
 
 # %%
-import torch
-from transformers import MarianMTModel, MarianTokenizer
-
-dispositivo = "cuda" if torch.cuda.is_available() else "cpu"
-print(f"Dispositivo: {dispositivo}")
-
-tokenizador_pt_en = MarianTokenizer.from_pretrained("Helsinki-NLP/opus-mt-ROMANCE-en")
-modelo_pt_en = MarianMTModel.from_pretrained("Helsinki-NLP/opus-mt-ROMANCE-en").to(dispositivo)
-
-tokenizador_en_pt = MarianTokenizer.from_pretrained("Helsinki-NLP/opus-mt-en-ROMANCE")
-modelo_en_pt = MarianMTModel.from_pretrained("Helsinki-NLP/opus-mt-en-ROMANCE").to(dispositivo)
-
-
-def traduzir(frase, tokenizador, modelo):
-    entrada = tokenizador(frase, return_tensors="pt").to(dispositivo)
+def traduzir(textos, tokenizador, modelo):
+    entrada = tokenizador(textos, return_tensors="pt", padding=True).to(dispositivo)
     saida = modelo.generate(**entrada)
 
-    return tokenizador.decode(saida[0], skip_special_tokens=True)
+    return tokenizador.batch_decode(saida, skip_special_tokens=True)
 
 
-def retraduzir(frase):
-    ingles = traduzir(frase, tokenizador_pt_en, modelo_pt_en)
-    portugues = traduzir(f">>pt_br<< {ingles}", tokenizador_en_pt, modelo_en_pt)
+def retraduzir(frases):
+    ingles = traduzir(frases, tokenizador_pt_en, modelo_pt_en)
 
-    return portugues
+    marcadas = []
+
+    for texto in ingles:
+        marcadas.append(f">>pt_br<< {texto}")
+
+    return traduzir(marcadas, tokenizador_en_pt, modelo_en_pt)
 
 
-print(frases[0])
-print(retraduzir(frases[0]))
+def gerar_parafrases(frases):
+    try:
+        retraduzidas = retraduzir(frases)
+    except Exception as erro:
+        resultados = []
+
+        for frase in frases:
+            resultados.append((frase, f"original mantida: erro na tradução ({erro})"))
+
+        return resultados
+
+    resultados = []
+
+    for frase, parafrase in zip(frases, retraduzidas):
+        if parafrase.strip().casefold() == frase.strip().casefold():
+            resultados.append((frase, "original mantida: tradução repetiu a frase"))
+        else:
+            resultados.append((parafrase, "retrotradução pt → en → pt"))
+
+    return resultados
+
+
+parafrases = gerar_parafrases(frases)
+print(f"{len(parafrases)} paráfrases geradas")
 
 # %% [markdown]
-# Se a retrotradução falhar ou devolver a mesma frase, a frase original é mantida e o motivo fica registrado.
+# Mostra cada paráfrase ao lado da frase original.
 
 # %%
-def gerar_parafrase(frase):
-    try:
-        parafrase = retraduzir(frase)
-    except Exception as erro:
-        return frase, f"original mantida: erro na tradução ({erro})"
+import pandas as pd
 
-    if parafrase.strip().casefold() == frase.strip().casefold():
-        return frase, "original mantida: tradução repetiu a frase"
+linhas_parafrase = []
 
-    return parafrase, "retrotradução pt → en → pt"
+for frase, (parafrase, metodo) in zip(frases, parafrases):
+    linhas_parafrase.append({"Frase original": frase, "Paráfrase": parafrase, "Método": metodo})
 
-
-for frase in frases[:3]:
-    parafrase, metodo = gerar_parafrase(frase)
-
-    print(frase)
-    print(parafrase)
-    print(metodo)
-    print()
+tabela_parafrases = pd.DataFrame(linhas_parafrase)
+tabela_parafrases
 
 # %% [markdown]
 # ## 3. Contradição
