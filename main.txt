@@ -232,10 +232,16 @@ def regra_entidade(analise):
     }
 
     for entidade in analise.ents:
-        if entidade.label_ not in substitutas:
+        tipo = entidade.label_
+
+        for outro_tipo, nomes in substitutas.items():
+            if entidade.text in nomes:
+                tipo = outro_tipo
+
+        if tipo not in substitutas:
             continue
 
-        opcoes = substitutas[entidade.label_]
+        opcoes = substitutas[tipo]
 
         if entidade.text in opcoes:
             posicao = opcoes.index(entidade.text)
@@ -472,6 +478,41 @@ for analise in analises:
     print(analise.text)
     print(regra_negacao(analise))
     print()
+
+# %% [markdown]
+# Aplica as regras em ordem em cada frase (número, entidade, antônimo e negação). A primeira regra que funcionar gera a contradição, e o nome dela fica registrado.
+
+# %%
+def gerar_contradicoes(analises):
+    regras = [
+        ("número", regra_numero),
+        ("entidade", regra_entidade),
+        ("antônimo", regra_antonimo),
+        ("negação", regra_negacao),
+    ]
+
+    resultados = []
+
+    for analise in analises:
+        for nome, regra in regras:
+            contradicao = regra(analise)
+
+            if contradicao:
+                resultados.append((contradicao, nome))
+                break
+
+    return resultados
+
+
+contradicoes = gerar_contradicoes(analises)
+
+linhas_contradicao = []
+
+for frase, (contradicao, metodo) in zip(frases, contradicoes):
+    linhas_contradicao.append({"Frase original": frase, "Contradição": contradicao, "Método": metodo})
+
+tabela_contradicoes = pd.DataFrame(linhas_contradicao)
+tabela_contradicoes
 
 # %% [markdown]
 # ## 4. Métricas
