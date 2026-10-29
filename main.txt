@@ -29,6 +29,14 @@ tokenizador_en_pt = MarianTokenizer.from_pretrained("Helsinki-NLP/opus-mt-en-ROM
 modelo_en_pt = MarianMTModel.from_pretrained("Helsinki-NLP/opus-mt-en-ROMANCE").to(dispositivo)
 
 # %% [markdown]
+# Carrega o modelo do spaCy em português, usado para encontrar classes de palavras, lemas e entidades nomeadas. Rode uma vez por sessão.
+
+# %%
+import spacy
+
+nlp = spacy.load("pt_core_news_sm")
+
+# %% [markdown]
 # ## 1. Entrada
 #
 # Lê o arquivo de frases: uma frase por linha, sem espaços nas pontas e sem linhas vazias, na ordem original.
@@ -119,6 +127,351 @@ tabela_parafrases
 
 # %% [markdown]
 # ## 3. Contradição
+#
+# Analisa cada frase com o spaCy: classe de cada palavra, lema e entidades nomeadas (pessoas, lugares e organizações). As regras de contradição usam essa análise.
+
+# %%
+def analisar_frases(frases):
+    analises = []
+
+    for analise in nlp.pipe(frases):
+        analises.append(analise)
+
+    return analises
+
+
+analises = analisar_frases(frases)
+print(f"{len(analises)} frases analisadas")
+
+for analise in analises[:3]:
+    print()
+    print(analise.text)
+
+    for token in analise:
+        print(f"  {token.text:<15} {token.pos_:<6} {token.lemma_:<15} {token.dep_}")
+
+    for entidade in analise.ents:
+        print(f"  entidade: {entidade.text} ({entidade.label_})")
+
+# %% [markdown]
+# Regra do número: troca o primeiro número da frase por outro valor. Números em algarismos são dobrados (anos ganham mais um), e números por extenso trocam pelo dobro.
+
+# %%
+def trocar_numero(texto):
+    dobros = {
+        "um": "dois",
+        "dois": "quatro",
+        "três": "seis",
+        "quatro": "oito",
+        "cinco": "dez",
+        "seis": "doze",
+        "sete": "catorze",
+        "oito": "dezesseis",
+        "nove": "dezoito",
+        "dez": "vinte",
+        "cem": "duzentos",
+        "mil": "dois mil",
+    }
+
+    if texto.casefold() in dobros:
+        return dobros[texto.casefold()]
+
+    valor = float(texto.replace(".", "").replace(",", "."))
+
+    if valor.is_integer() and 1900 <= valor <= 2100:
+        return str(int(valor) + 1)
+
+    novo = valor * 2
+
+    if novo.is_integer():
+        return str(int(novo))
+
+    return str(novo).replace(".", ",")
+
+
+def regra_numero(analise):
+    for token in analise:
+        if token.pos_ != "NUM":
+            continue
+
+        try:
+            novo = trocar_numero(token.text)
+        except ValueError:
+            continue
+
+        partes = []
+
+        for outro in analise:
+            if outro.i == token.i:
+                partes.append(novo + outro.whitespace_)
+            else:
+                partes.append(outro.text_with_ws)
+
+        return "".join(partes)
+
+    return None
+
+
+for analise in analises:
+    contradicao = regra_numero(analise)
+
+    if contradicao:
+        print(analise.text)
+        print(contradicao)
+        print()
+
+# %% [markdown]
+# Regra da entidade: troca a primeira pessoa, lugar ou organização da frase por outra do mesmo tipo, tirada de uma lista fixa.
+
+# %%
+def regra_entidade(analise):
+    substitutas = {
+        "PER": ["Maria", "Pedro", "Ana", "João", "Carla"],
+        "LOC": ["Curitiba", "Recife", "Porto Alegre", "Manaus", "Salvador"],
+        "ORG": ["Petrobras", "Banco Central", "Vale", "Embraer", "Itaú"],
+    }
+
+    for entidade in analise.ents:
+        if entidade.label_ not in substitutas:
+            continue
+
+        opcoes = substitutas[entidade.label_]
+
+        if entidade.text in opcoes:
+            posicao = opcoes.index(entidade.text)
+            nova = opcoes[(posicao + 1) % len(opcoes)]
+        else:
+            nova = opcoes[0]
+
+        texto = analise.text
+
+        return texto[:entidade.start_char] + nova + texto[entidade.end_char:]
+
+    return None
+
+
+for analise in analises:
+    contradicao = regra_entidade(analise)
+
+    if contradicao:
+        print(analise.text)
+        print(contradicao)
+        print()
+
+# %% [markdown]
+# Regra do antônimo: troca a primeira palavra encontrada num dicionário de opostos. Procura primeiro adjetivos, depois verbos e por último advérbios. Adjetivos mantêm gênero e número da palavra original.
+
+# %%
+def montar_opostos(pares):
+    opostos = {}
+
+    for palavra, oposta in pares:
+        opostos[palavra] = oposta
+        opostos[oposta] = palavra
+
+    return opostos
+
+
+adjetivos_opostos = montar_opostos([
+    ("bom", "ruim"),
+    ("grande", "pequeno"),
+    ("fácil", "difícil"),
+    ("alto", "baixo"),
+    ("novo", "velho"),
+    ("rápido", "lento"),
+    ("rico", "pobre"),
+    ("feliz", "triste"),
+    ("cheio", "vazio"),
+    ("quente", "frio"),
+    ("forte", "fraco"),
+    ("caro", "barato"),
+    ("limpo", "sujo"),
+    ("certo", "errado"),
+    ("melhor", "pior"),
+    ("longo", "curto"),
+    ("claro", "escuro"),
+    ("positivo", "negativo"),
+    ("possível", "impossível"),
+    ("verdadeiro", "falso"),
+    ("seguro", "perigoso"),
+])
+
+verbos_opostos = montar_opostos([
+    ("aumentou", "diminuiu"),
+    ("aumenta", "diminui"),
+    ("aumentaram", "diminuíram"),
+    ("abre", "fecha"),
+    ("abriu", "fechou"),
+    ("abrem", "fecham"),
+    ("ganhou", "perdeu"),
+    ("ganha", "perde"),
+    ("venceu", "perdeu"),
+    ("vence", "perde"),
+    ("subiu", "desceu"),
+    ("sobe", "desce"),
+    ("comprou", "vendeu"),
+    ("compra", "vende"),
+    ("entrou", "saiu"),
+    ("entra", "sai"),
+    ("começou", "terminou"),
+    ("começa", "termina"),
+    ("aceitou", "recusou"),
+    ("lembrou", "esqueceu"),
+    ("chegou", "partiu"),
+])
+
+adverbios_opostos = montar_opostos([
+    ("cedo", "tarde"),
+    ("antes", "depois"),
+    ("sempre", "nunca"),
+    ("bem", "mal"),
+    ("dentro", "fora"),
+    ("perto", "longe"),
+])
+
+
+def flexionar_adjetivo(palavra, token):
+    if "Fem" in token.morph.get("Gender") and palavra.endswith("o"):
+        palavra = palavra[:-1] + "a"
+
+    if "Plur" in token.morph.get("Number"):
+        if palavra.endswith("il"):
+            palavra = palavra[:-2] + "eis"
+        elif palavra.endswith("m"):
+            palavra = palavra[:-1] + "ns"
+        elif palavra.endswith(("r", "z", "s")):
+            palavra = palavra + "es"
+        elif palavra.endswith("l"):
+            palavra = palavra[:-1] + "is"
+        else:
+            palavra = palavra + "s"
+
+    return palavra
+
+
+def trocar_token(analise, token, novo):
+    if token.text[0].isupper():
+        novo = novo[0].upper() + novo[1:]
+
+    partes = []
+
+    for outro in analise:
+        if outro.i == token.i:
+            partes.append(novo + outro.whitespace_)
+        else:
+            partes.append(outro.text_with_ws)
+
+    return "".join(partes)
+
+
+def verbo_negado(token):
+    for filho in token.children:
+        if filho.lower_ == "não":
+            return True
+
+    return False
+
+
+def regra_antonimo(analise):
+    for classe in ["ADJ", "VERB", "ADV"]:
+        for token in analise:
+            if token.pos_ != classe:
+                continue
+
+            if classe == "VERB" and verbo_negado(token):
+                continue
+
+            lema = token.lemma_.casefold()
+            palavra = token.text.casefold()
+
+            if classe == "ADJ" and lema in adjetivos_opostos:
+                return trocar_token(analise, token, flexionar_adjetivo(adjetivos_opostos[lema], token))
+
+            if classe == "VERB" and palavra in verbos_opostos:
+                return trocar_token(analise, token, verbos_opostos[palavra])
+
+            if classe == "ADV" and lema in adverbios_opostos:
+                return trocar_token(analise, token, adverbios_opostos[lema])
+
+    return None
+
+
+for analise in analises:
+    contradicao = regra_antonimo(analise)
+
+    if contradicao:
+        print(analise.text)
+        print(contradicao)
+        print()
+
+# %% [markdown]
+# Regra da negação: coloca "não" antes do verbo principal ou, se ele já estiver negado, tira o "não". Em frases como "O filme foi bom", o "não" vai antes do verbo de ligação ("não foi"). Se a frase não tiver verbo, ganha "Não é verdade que" no começo. Esta regra sempre funciona e é a última da fila.
+
+# %%
+def achar_verbo(analise):
+    for token in analise:
+        if token.dep_ == "ROOT":
+            raiz = token
+
+    auxiliares = []
+
+    for filho in raiz.children:
+        if filho.dep_ in {"aux", "aux:pass", "cop"} and filho.i < raiz.i:
+            auxiliares.append(filho)
+
+    if auxiliares:
+        return raiz, auxiliares[0]
+
+    if raiz.pos_ in {"VERB", "AUX"}:
+        return raiz, raiz
+
+    return raiz, None
+
+
+def regra_negacao(analise):
+    raiz, verbo = achar_verbo(analise)
+
+    for filho in raiz.children:
+        if filho.lower_ == "não":
+            partes = []
+
+            for token in analise:
+                if token.i == filho.i:
+                    continue
+
+                if token.i == filho.i + 1 and filho.i == 0:
+                    partes.append(token.text[0].upper() + token.text[1:] + token.whitespace_)
+                else:
+                    partes.append(token.text_with_ws)
+
+            return "".join(partes)
+
+    if verbo is None:
+        texto = analise.text
+
+        if analise[0].pos_ != "PROPN":
+            texto = texto[0].lower() + texto[1:]
+
+        return "Não é verdade que " + texto
+
+    partes = []
+
+    for token in analise:
+        if token.i == verbo.i:
+            if token.i == 0:
+                partes.append("Não " + token.text.lower() + token.whitespace_)
+            else:
+                partes.append("não " + token.text_with_ws)
+        else:
+            partes.append(token.text_with_ws)
+
+    return "".join(partes)
+
+
+for analise in analises:
+    print(analise.text)
+    print(regra_negacao(analise))
+    print()
 
 # %% [markdown]
 # ## 4. Métricas
