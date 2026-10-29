@@ -218,3 +218,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Spec-driven development workspace (local only)
+.sdd/
+
+# Local Claude Code instructions
+CLAUDE.md
