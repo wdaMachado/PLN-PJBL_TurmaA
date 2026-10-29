@@ -61,3 +61,17 @@ print(f"{len(frases)} frases carregadas de frases.txt")
 
 # %% [markdown]
 # ## 8. Novo arquivo
+#
+# Coloque o arquivo trazido pelo professor no dia da defesa na mesma pasta, com o nome `novo_arquivo.txt` e no mesmo formato de `frases.txt`.
+
+# %%
+def carregar_novo_arquivo(caminho):
+    frases = ler_frases(caminho)
+
+    print(f"{len(frases)} frases carregadas de {caminho}")
+
+    return frases
+
+
+if Path("novo_arquivo.txt").exists():
+    frases = carregar_novo_arquivo("novo_arquivo.txt")
