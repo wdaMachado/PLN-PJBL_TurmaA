@@ -66,10 +66,6 @@ def ler_frases(caminho):
 
     return frases
 
-
-frases = ler_frases("frases.txt")
-print(f"{len(frases)} frases carregadas de frases.txt")
-
 # %% [markdown]
 # ## 2. Paráfrase
 #
@@ -115,24 +111,6 @@ def gerar_parafrases(frases):
 
     return resultados
 
-
-parafrases = gerar_parafrases(frases)
-print(f"{len(parafrases)} paráfrases geradas")
-
-# %% [markdown]
-# Mostra cada paráfrase ao lado da frase original.
-
-# %%
-import pandas as pd
-
-linhas_parafrase = []
-
-for frase, (parafrase, metodo) in zip(frases, parafrases):
-    linhas_parafrase.append({"Frase original": frase, "Paráfrase": parafrase, "Método": metodo})
-
-tabela_parafrases = pd.DataFrame(linhas_parafrase)
-tabela_parafrases
-
 # %% [markdown]
 # ## 3. Contradição
 #
@@ -146,20 +124,6 @@ def analisar_frases(frases):
         analises.append(analise)
 
     return analises
-
-
-analises = analisar_frases(frases)
-print(f"{len(analises)} frases analisadas")
-
-for analise in analises[:3]:
-    print()
-    print(analise.text)
-
-    for token in analise:
-        print(f"  {token.text:<15} {token.pos_:<6} {token.lemma_:<15} {token.dep_}")
-
-    for entidade in analise.ents:
-        print(f"  entidade: {entidade.text} ({entidade.label_})")
 
 # %% [markdown]
 # Regra do número: troca o primeiro número da frase por outro valor. Números em algarismos são dobrados (anos ganham mais um), e números por extenso trocam pelo dobro.
@@ -219,15 +183,6 @@ def regra_numero(analise):
 
     return None
 
-
-for analise in analises:
-    contradicao = regra_numero(analise)
-
-    if contradicao:
-        print(analise.text)
-        print(contradicao)
-        print()
-
 # %% [markdown]
 # Regra da entidade: troca a primeira pessoa, lugar ou organização da frase por outra do mesmo tipo, tirada de uma lista fixa.
 
@@ -262,15 +217,6 @@ def regra_entidade(analise):
         return texto[:entidade.start_char] + nova + texto[entidade.end_char:]
 
     return None
-
-
-for analise in analises:
-    contradicao = regra_entidade(analise)
-
-    if contradicao:
-        print(analise.text)
-        print(contradicao)
-        print()
 
 # %% [markdown]
 # Regra do antônimo: troca a primeira palavra encontrada num dicionário de opostos. Procura primeiro adjetivos, depois verbos e por último advérbios. Adjetivos mantêm gênero e número da palavra original.
@@ -409,15 +355,6 @@ def regra_antonimo(analise):
 
     return None
 
-
-for analise in analises:
-    contradicao = regra_antonimo(analise)
-
-    if contradicao:
-        print(analise.text)
-        print(contradicao)
-        print()
-
 # %% [markdown]
 # Regra da negação: coloca "não" antes do verbo principal ou, se ele já estiver negado, tira o "não". Em frases como "O filme foi bom", o "não" vai antes do verbo de ligação ("não foi"). Se a frase não tiver verbo, ganha "Não é verdade que" no começo. Esta regra sempre funciona e é a última da fila.
 
@@ -481,12 +418,6 @@ def regra_negacao(analise):
 
     return "".join(partes)
 
-
-for analise in analises:
-    print(analise.text)
-    print(regra_negacao(analise))
-    print()
-
 # %% [markdown]
 # Aplica as regras em ordem em cada frase (número, entidade, antônimo e negação). A primeira regra que funcionar gera a contradição, e o nome dela fica registrado.
 
@@ -511,17 +442,6 @@ def gerar_contradicoes(analises):
 
     return resultados
 
-
-contradicoes = gerar_contradicoes(analises)
-
-linhas_contradicao = []
-
-for frase, (contradicao, metodo) in zip(frases, contradicoes):
-    linhas_contradicao.append({"Frase original": frase, "Contradição": contradicao, "Método": metodo})
-
-tabela_contradicoes = pd.DataFrame(linhas_contradicao)
-tabela_contradicoes
-
 # %% [markdown]
 # ## 4. Métricas
 #
@@ -536,13 +456,6 @@ def montar_pares(frases, parafrases, contradicoes):
         pares.append({"original": frase, "gerada": contradicao, "tipo": "contradição", "metodo": metodo_contradicao})
 
     return pares
-
-
-pares = montar_pares(frases, parafrases, contradicoes)
-print(f"{len(pares)} pares montados para {len(frases)} frases")
-
-for par in pares[:4]:
-    print(f"{par['tipo']} ({par['metodo']}): {par['original']} -> {par['gerada']}")
 
 # %% [markdown]
 # Calcula o BERTScore de todos os pares de uma só vez, comparando cada frase gerada com a original. Guarda a precisão, a revocação e o F1 em cada par.
@@ -566,12 +479,6 @@ def calcular_bertscore(pares):
         par["bert_revocacao"] = revocacao.item()
         par["bert_f1"] = f1.item()
 
-
-calcular_bertscore(pares)
-
-for par in pares:
-    print(f"{par['tipo']} | P {par['bert_precisao']:.3f} | R {par['bert_revocacao']:.3f} | F1 {par['bert_f1']:.3f} | {par['gerada']}")
-
 # %% [markdown]
 # Calcula o SBERT de todos os pares: transforma todas as frases em vetores de uma só vez e guarda em cada par a similaridade de cosseno entre a original e a gerada.
 
@@ -594,16 +501,13 @@ def calcular_sbert(pares):
     for par, similaridade in zip(pares, similaridades):
         par["sbert_cosseno"] = similaridade.item()
 
-
-calcular_sbert(pares)
-
-for par in pares:
-    print(f"{par['tipo']} | SBERT {par['sbert_cosseno']:.3f} | F1 {par['bert_f1']:.3f} | {par['gerada']}")
-
 # %% [markdown]
 # Junta as duas métricas numa só tabela, com uma linha por par: a frase original, a frase gerada, o tipo, o método e as notas.
 
 # %%
+import pandas as pd
+
+
 def montar_tabela(pares):
     linhas = []
 
@@ -621,15 +525,60 @@ def montar_tabela(pares):
 
     return pd.DataFrame(linhas).round(3)
 
-
-tabela_comparacao = montar_tabela(pares)
-tabela_comparacao
-
 # %% [markdown]
 # ## 5. Pipeline
+#
+# Junta todas as etapas numa só função: recebe o caminho de um arquivo de frases e devolve a tabela de comparação. Para usar outro arquivo, basta chamar a função com o caminho dele.
+
+# %%
+def executar_pipeline(caminho):
+    frases = ler_frases(caminho)
+    print(f"{len(frases)} frases carregadas de {caminho}")
+
+    parafrases = gerar_parafrases(frases)
+    analises = analisar_frases(frases)
+    contradicoes = gerar_contradicoes(analises)
+    pares = montar_pares(frases, parafrases, contradicoes)
+
+    calcular_bertscore(pares)
+    calcular_sbert(pares)
+
+    return montar_tabela(pares)
 
 # %% [markdown]
 # ## 6. Resultados
+#
+# Roda o pipeline em `frases.txt` e mostra a tabela de comparação com as frases completas.
+
+# %%
+pd.set_option("display.max_colwidth", None)
+
+tabela_comparacao = executar_pipeline("frases.txt")
+tabela_comparacao
+
+# %% [markdown]
+# Mostra a média de cada métrica por tipo de variação (paráfrase e contradição).
+
+# %%
+def calcular_medias(tabela):
+    metricas = ["BERTScore P", "BERTScore R", "BERTScore F1", "SBERT cosseno"]
+
+    return tabela.groupby("Tipo")[metricas].mean().round(3)
+
+
+calcular_medias(tabela_comparacao)
+
+# %% [markdown]
+# Salva a tabela de comparação num arquivo CSV, na mesma pasta do notebook.
+
+# %%
+def salvar_csv(tabela, caminho):
+    tabela.to_csv(caminho, index=False, encoding="utf-8-sig")
+
+    print(f"{len(tabela)} linhas salvas em {caminho}")
+
+
+salvar_csv(tabela_comparacao, "resultados.csv")
 
 # %% [markdown]
 # ## 7. Novo arquivo
