@@ -37,6 +37,14 @@ import spacy
 nlp = spacy.load("pt_core_news_sm")
 
 # %% [markdown]
+# Carrega o modelo multilíngue de sentenças do SBERT, usado para comparar o significado das frases. Rode uma vez por sessão.
+
+# %%
+from sentence_transformers import SentenceTransformer
+
+modelo_sbert = SentenceTransformer("paraphrase-multilingual-mpnet-base-v2", device=dispositivo)
+
+# %% [markdown]
 # ## 1. Entrada
 #
 # Lê o arquivo de frases: uma frase por linha, sem espaços nas pontas e sem linhas vazias, na ordem original.
@@ -516,6 +524,106 @@ tabela_contradicoes
 
 # %% [markdown]
 # ## 4. Métricas
+#
+# Monta os pares que serão comparados: cada frase original forma um par com a sua paráfrase e outro com a sua contradição.
+
+# %%
+def montar_pares(frases, parafrases, contradicoes):
+    pares = []
+
+    for frase, (parafrase, metodo_parafrase), (contradicao, metodo_contradicao) in zip(frases, parafrases, contradicoes):
+        pares.append({"original": frase, "gerada": parafrase, "tipo": "paráfrase", "metodo": metodo_parafrase})
+        pares.append({"original": frase, "gerada": contradicao, "tipo": "contradição", "metodo": metodo_contradicao})
+
+    return pares
+
+
+pares = montar_pares(frases, parafrases, contradicoes)
+print(f"{len(pares)} pares montados para {len(frases)} frases")
+
+for par in pares[:4]:
+    print(f"{par['tipo']} ({par['metodo']}): {par['original']} -> {par['gerada']}")
+
+# %% [markdown]
+# Calcula o BERTScore de todos os pares de uma só vez, comparando cada frase gerada com a original. Guarda a precisão, a revocação e o F1 em cada par.
+
+# %%
+from bert_score import score
+
+
+def calcular_bertscore(pares):
+    originais = []
+    geradas = []
+
+    for par in pares:
+        originais.append(par["original"])
+        geradas.append(par["gerada"])
+
+    precisoes, revocacoes, f1s = score(geradas, originais, lang="pt", device=dispositivo)
+
+    for par, precisao, revocacao, f1 in zip(pares, precisoes, revocacoes, f1s):
+        par["bert_precisao"] = precisao.item()
+        par["bert_revocacao"] = revocacao.item()
+        par["bert_f1"] = f1.item()
+
+
+calcular_bertscore(pares)
+
+for par in pares:
+    print(f"{par['tipo']} | P {par['bert_precisao']:.3f} | R {par['bert_revocacao']:.3f} | F1 {par['bert_f1']:.3f} | {par['gerada']}")
+
+# %% [markdown]
+# Calcula o SBERT de todos os pares: transforma todas as frases em vetores de uma só vez e guarda em cada par a similaridade de cosseno entre a original e a gerada.
+
+# %%
+from sentence_transformers.util import pairwise_cos_sim
+
+
+def calcular_sbert(pares):
+    originais = []
+    geradas = []
+
+    for par in pares:
+        originais.append(par["original"])
+        geradas.append(par["gerada"])
+
+    vetores = modelo_sbert.encode(originais + geradas, convert_to_tensor=True)
+    metade = len(originais)
+    similaridades = pairwise_cos_sim(vetores[:metade], vetores[metade:])
+
+    for par, similaridade in zip(pares, similaridades):
+        par["sbert_cosseno"] = similaridade.item()
+
+
+calcular_sbert(pares)
+
+for par in pares:
+    print(f"{par['tipo']} | SBERT {par['sbert_cosseno']:.3f} | F1 {par['bert_f1']:.3f} | {par['gerada']}")
+
+# %% [markdown]
+# Junta as duas métricas numa só tabela, com uma linha por par: a frase original, a frase gerada, o tipo, o método e as notas.
+
+# %%
+def montar_tabela(pares):
+    linhas = []
+
+    for par in pares:
+        linhas.append({
+            "Frase original": par["original"],
+            "Tipo": par["tipo"],
+            "Frase gerada": par["gerada"],
+            "Método": par["metodo"],
+            "BERTScore P": par["bert_precisao"],
+            "BERTScore R": par["bert_revocacao"],
+            "BERTScore F1": par["bert_f1"],
+            "SBERT cosseno": par["sbert_cosseno"],
+        })
+
+    return pd.DataFrame(linhas).round(3)
+
+
+tabela_comparacao = montar_tabela(pares)
+tabela_comparacao
 
 # %% [markdown]
 # ## 5. Pipeline
